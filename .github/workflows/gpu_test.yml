@@ -18,7 +18,7 @@ jobs:
   test:
     name: py=${{ matrix.python-version }}, np=${{ matrix.numpy-version }}, deps=${{ matrix.dependency-set }}
 
-    runs-on: "cirun-gpu-runner--${{ github.run_id }}"
+    runs-on: "cirun-gcp-n1-standard-1-nvidia-tesla-t4-ubuntu2204--${{ github.run_id }}"
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
