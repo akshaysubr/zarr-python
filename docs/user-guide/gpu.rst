@@ -27,7 +27,7 @@ buffers used internally by Zarr.
 Note that the output type is a ``cupy.ndarray`` rather than a NumPy array.
 
 For supported codecs, data will be decoded using the GPU via the `nvcomp`_
-library. See :ref:`user-guide-config` for more. Isseus and feature requests
+library. See :ref:`user-guide-config` for more. Issues and feature requests
 for NVIDIA nvCOMP can be reported in the `nvcomp issue tracker`_.
 
 .. _nvcomp: https://docs.nvidia.com/cuda/nvcomp/samples/python_samples.html

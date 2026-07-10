@@ -144,6 +144,8 @@ exclude_also = [
 omit = [
     "bench/compress_normal.py",
     "src/zarr/testing/conftest.py",  # only for downstream projects
+    "src/zarr/codecs/gpu.py",  # requires GPU hardware not available in CI
+    "src/zarr/core/buffer/gpu.py",  # requires GPU hardware not available in CI
 ]
 
 [tool.hatch]
