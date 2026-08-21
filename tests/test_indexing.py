@@ -16,9 +16,11 @@ from zarr import Array
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.chunk_grids import ChunkGrid
 from zarr.core.indexing import (
+    BasicIndexer,
     BasicSelection,
     CoordinateIndexer,
     CoordinateSelection,
+    OrthogonalIndexer,
     OrthogonalSelection,
     Selection,
     _ArrayIndexingOrder,
@@ -2303,3 +2305,24 @@ class TestAsync:
 
         with pytest.raises(IndexError):
             await async_zarr.oindex.getitem("invalid_indexer")
+
+
+def test_basic_indexer_exposes_normalized_selection() -> None:
+    indexer = BasicIndexer(
+        (slice(-8, None, 2), -1),
+        shape=(10, 8),
+        chunk_grid=ChunkGrid.from_sizes((10, 8), (4, 3)),
+    )
+
+    assert indexer.normalized_selection == (slice(2, 10, 2), 7)
+    assert indexer.normalized_selection is indexer.normalized_selection
+    assert indexer.shape == (4,)
+
+
+def test_orthogonal_indexer_exposes_only_normalized_basic_selection() -> None:
+    grid = ChunkGrid.from_sizes((10, 8), (4, 3))
+    basic = OrthogonalIndexer((slice(-8, None), -1), shape=(10, 8), chunk_grid=grid)
+    advanced = OrthogonalIndexer(([1, 3], slice(None)), shape=(10, 8), chunk_grid=grid)
+
+    assert basic.normalized_selection == (slice(2, 10, 1), 7)
+    assert advanced.normalized_selection is None

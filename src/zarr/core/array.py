@@ -5464,8 +5464,6 @@ async def _get_selection(
         if metadata.zarr_format == 2:
             _config = replace(_config, order=order)
 
-        # reading chunks and decoding them
-        indexed_chunks = list(indexer)
         # For regular grids, all chunks share the same ArraySpec, so build it once
         # and reuse it to avoid per-chunk ChunkGrid lookups and ArraySpec construction.
         regular_grid = chunk_grid.is_regular
@@ -5477,37 +5475,60 @@ async def _get_selection(
                 config=_config,
                 prototype=prototype,
             )
-        results = await codec_pipeline.read(
-            [
-                (
-                    store_path / metadata.encode_chunk_key(chunk_coords),
-                    regular_chunk_spec
-                    if regular_grid
-                    else _get_chunk_spec(metadata, chunk_grid, chunk_coords, _config, prototype),
-                    chunk_selection,
-                    out_selection,
-                    is_complete_chunk,
-                )
-                for chunk_coords, chunk_selection, out_selection, is_complete_chunk in indexed_chunks
-            ],
-            out_buffer,
-            drop_axes=indexer.drop_axes,
+        request_reader = getattr(codec_pipeline, "read_basic_selection", None)
+        request_handled = bool(
+            await request_reader(
+                indexer=indexer,
+                metadata=metadata,
+                store_path=store_path,
+                chunk_spec=regular_chunk_spec,
+                out=out_buffer,
+            )
+            if callable(request_reader)
+            and (
+                isinstance(indexer, BasicIndexer)
+                or (isinstance(indexer, OrthogonalIndexer) and not indexer.is_advanced)
+            )
+            and not fields
+            and regular_grid
+            else False
         )
-        if _config.read_missing_chunks is False:
-            missing_info = []
-            for i, result in enumerate(results):
-                if result["status"] == "missing":
-                    coords = indexed_chunks[i][0]
-                    key = metadata.encode_chunk_key(coords)
-                    missing_info.append(f"  chunk '{key}' (grid position {coords})")
-            if missing_info:
-                chunks_str = "\n".join(missing_info)
-                raise ChunkNotFoundError(
-                    f"{len(missing_info)} chunk(s) not found in store '{store_path}'.\n"
-                    f"Set the 'array.read_missing_chunks' config to True to fill "
-                    f"missing chunks with the fill value.\n"
-                    f"Missing chunks:\n{chunks_str}"
-                )
+        if not request_handled:
+            # Universal fallback: preserve the existing per-chunk codec pipeline.
+            indexed_chunks = list(indexer)
+            results = await codec_pipeline.read(
+                [
+                    (
+                        store_path / metadata.encode_chunk_key(chunk_coords),
+                        regular_chunk_spec
+                        if regular_grid
+                        else _get_chunk_spec(
+                            metadata, chunk_grid, chunk_coords, _config, prototype
+                        ),
+                        chunk_selection,
+                        out_selection,
+                        is_complete_chunk,
+                    )
+                    for chunk_coords, chunk_selection, out_selection, is_complete_chunk in indexed_chunks
+                ],
+                out_buffer,
+                drop_axes=indexer.drop_axes,
+            )
+            if _config.read_missing_chunks is False:
+                missing_info = []
+                for i, result in enumerate(results):
+                    if result["status"] == "missing":
+                        coords = indexed_chunks[i][0]
+                        key = metadata.encode_chunk_key(coords)
+                        missing_info.append(f"  chunk '{key}' (grid position {coords})")
+                if missing_info:
+                    chunks_str = "\n".join(missing_info)
+                    raise ChunkNotFoundError(
+                        f"{len(missing_info)} chunk(s) not found in store '{store_path}'.\n"
+                        f"Set the 'array.read_missing_chunks' config to True to fill "
+                        f"missing chunks with the fill value.\n"
+                        f"Missing chunks:\n{chunks_str}"
+                    )
     if isinstance(indexer, BasicIndexer) and indexer.shape == ():
         return out_buffer.as_scalar()
     return out_buffer.as_ndarray_like()

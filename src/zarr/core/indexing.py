@@ -571,6 +571,7 @@ def is_basic_selection(selection: Any) -> TypeGuard[BasicSelection]:
 @dataclass(frozen=True)
 class BasicIndexer(Indexer):
     dim_indexers: list[IntDimIndexer | SliceDimIndexer]
+    _normalized_selection: tuple[int | slice, ...]
     shape: tuple[int, ...]
     drop_axes: tuple[int, ...]
 
@@ -605,10 +606,25 @@ class BasicIndexer(Indexer):
         object.__setattr__(self, "dim_indexers", dim_indexers)
         object.__setattr__(
             self,
+            "_normalized_selection",
+            tuple(
+                dim_indexer.dim_sel
+                if isinstance(dim_indexer, IntDimIndexer)
+                else slice(dim_indexer.start, dim_indexer.stop, dim_indexer.step)
+                for dim_indexer in dim_indexers
+            ),
+        )
+        object.__setattr__(
+            self,
             "shape",
             tuple(s.nitems for s in self.dim_indexers if not isinstance(s, IntDimIndexer)),
         )
         object.__setattr__(self, "drop_axes", ())
+
+    @property
+    def normalized_selection(self) -> tuple[int | slice, ...]:
+        """Return the normalized selection without creating chunk projections."""
+        return self._normalized_selection
 
     def __iter__(self) -> Iterator[ChunkProjection]:
         for dim_projections in itertools.product(*self.dim_indexers):
@@ -902,6 +918,7 @@ def oindex_set(a: npt.NDArray[Any], selection: Selection, value: Any) -> None:
 class OrthogonalIndexer(Indexer):
     dim_indexers: list[IntDimIndexer | SliceDimIndexer | IntArrayDimIndexer | BoolArrayDimIndexer]
     dim_grids: tuple[DimensionGrid, ...]
+    _normalized_selection: tuple[int | slice, ...] | None
     shape: tuple[int, ...]
     is_advanced: bool
     drop_axes: tuple[int, ...]
@@ -955,9 +972,26 @@ class OrthogonalIndexer(Indexer):
 
         object.__setattr__(self, "dim_indexers", dim_indexers)
         object.__setattr__(self, "dim_grids", dim_grids)
+        object.__setattr__(
+            self,
+            "_normalized_selection",
+            tuple(
+                dim_indexer.dim_sel
+                if isinstance(dim_indexer, IntDimIndexer)
+                else slice(dim_indexer.start, dim_indexer.stop, dim_indexer.step)
+                for dim_indexer in dim_indexers
+            )
+            if not is_advanced
+            else None,
+        )
         object.__setattr__(self, "shape", shape)
         object.__setattr__(self, "is_advanced", is_advanced)
         object.__setattr__(self, "drop_axes", drop_axes)
+
+    @property
+    def normalized_selection(self) -> tuple[int | slice, ...] | None:
+        """Return a normalized basic selection without creating chunk projections."""
+        return self._normalized_selection
 
     def __iter__(self) -> Iterator[ChunkProjection]:
         for dim_projections in itertools.product(*self.dim_indexers):
