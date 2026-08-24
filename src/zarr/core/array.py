@@ -5476,7 +5476,7 @@ async def _get_selection(
                 prototype=prototype,
             )
         request_reader = getattr(codec_pipeline, "read_basic_selection", None)
-        request_handled = bool(
+        request_result = (
             await request_reader(
                 indexer=indexer,
                 metadata=metadata,
@@ -5491,9 +5491,9 @@ async def _get_selection(
             )
             and not fields
             and regular_grid
-            else False
+            else None
         )
-        if not request_handled:
+        if request_result is None:
             # Universal fallback: preserve the existing per-chunk codec pipeline.
             indexed_chunks = list(indexer)
             results = await codec_pipeline.read(
@@ -5514,21 +5514,30 @@ async def _get_selection(
                 out_buffer,
                 drop_axes=indexer.drop_axes,
             )
-            if _config.read_missing_chunks is False:
-                missing_info = []
-                for i, result in enumerate(results):
-                    if result["status"] == "missing":
-                        coords = indexed_chunks[i][0]
-                        key = metadata.encode_chunk_key(coords)
-                        missing_info.append(f"  chunk '{key}' (grid position {coords})")
-                if missing_info:
-                    chunks_str = "\n".join(missing_info)
-                    raise ChunkNotFoundError(
-                        f"{len(missing_info)} chunk(s) not found in store '{store_path}'.\n"
-                        f"Set the 'array.read_missing_chunks' config to True to fill "
-                        f"missing chunks with the fill value.\n"
-                        f"Missing chunks:\n{chunks_str}"
-                    )
+            missing_coords = [
+                indexed_chunks[i][0]
+                for i, result in enumerate(results)
+                if result["status"] == "missing"
+            ]
+        else:
+            # A request-level reader reports only missing top-level storage
+            # coordinates.  An empty sequence means the request was handled
+            # and every requested storage object was present.
+            missing_coords = request_result
+
+        if _config.read_missing_chunks is False and missing_coords:
+            missing_info = []
+            for raw_coords in missing_coords:
+                coords = tuple(int(coord) for coord in raw_coords)
+                key = metadata.encode_chunk_key(coords)
+                missing_info.append(f"  chunk '{key}' (grid position {coords})")
+            chunks_str = "\n".join(missing_info)
+            raise ChunkNotFoundError(
+                f"{len(missing_info)} chunk(s) not found in store '{store_path}'.\n"
+                f"Set the 'array.read_missing_chunks' config to True to fill "
+                f"missing chunks with the fill value.\n"
+                f"Missing chunks:\n{chunks_str}"
+            )
     if isinstance(indexer, BasicIndexer) and indexer.shape == ():
         return out_buffer.as_scalar()
     return out_buffer.as_ndarray_like()
